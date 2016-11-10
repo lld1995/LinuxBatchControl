@@ -5,13 +5,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
-#include <iostream>
 using namespace std;
 static int GetLength(int sockfd){
 	char lenstr[9];
-	int len = recv(sockfd, lenstr, 8, 0);
+	int len = recv(sockfd, lenstr, 8, MSG_NOSIGNAL);
 	lenstr[8] = '\0';
-	if(len==0)
+	if(len==0||len==-1)
 	{
 		return -1;
 	}
@@ -29,13 +28,11 @@ static void sendLength(int sock, string str) {
 			ss<<'0';
 		}
 		ss<<temp<<'\0';
-	cout << "sendlen:" << ss.str() << endl;
-		send(sock,ss.str().c_str(),8,0);
+	send(sock, ss.str().c_str(), 8, MSG_NOSIGNAL);
 };
 static void sendLenAndData(int sock,string str){
-	cout << "send:" << str << endl;
 	sendLength(sock,str);
-	send(sock,str.c_str(),str.length(),0);
+	send(sock,str.c_str(),str.length(),MSG_NOSIGNAL);
 };
 static int recvLenAndData(int sock, char * & data) {
 	int len=GetLength(sock);
@@ -45,21 +42,16 @@ static int recvLenAndData(int sock, char * & data) {
 		data = NULL;
 		return -1;
 	}
-
-	char* buf=new char[len+1];
-	int len1 = 0;
-	while (len1 < len)
-	{
-		len1 += recv(sock, buf, len, 0);	
-	}
 	
+	char* buf = new char[len+1];
+	int len1 = recv(sock, buf, len, MSG_NOSIGNAL);
 	if (len1 == -1)
 	{
 		data = NULL;
 		delete buf;
 		return 0;
 	}
- 	buf[len]='\0';
+	buf[len] = '\0';
 	data = buf;
 	return 1;
 };
