@@ -6,10 +6,14 @@
 #include <cstring>
 #include <cstdio>
 #include <iostream>
+#include <bits/signum.h>
+
+#include <signal.h>
 using namespace std;
 static int GetLength(int sockfd){
+
 	char lenstr[9];
-	int len = recv(sockfd, lenstr, 8, 0);
+	int len = recv(sockfd, lenstr, 8, MSG_NOSIGNAL);
 	lenstr[8] = '\0';
 	if(len==0)
 	{
@@ -20,6 +24,7 @@ static int GetLength(int sockfd){
 	return atoi(lenstr);
 };
 static void sendLength(int sock, string str) {
+
 		char temp[8];
 		sprintf(temp, "%d", str.length());
 		int len = strlen(temp);
@@ -29,15 +34,17 @@ static void sendLength(int sock, string str) {
 			ss<<'0';
 		}
 		ss<<temp<<'\0';
-	cout << "sendlen:" << ss.str() << endl;
-		send(sock,ss.str().c_str(),8,0);
+		//cout << "sendlen:" << ss.str() << endl;
+	send(sock, ss.str().c_str(), 8, MSG_NOSIGNAL);
 };
 static void sendLenAndData(int sock,string str){
-	cout << "send:" << str << endl;
+
+//	cout << "send:" << str << endl;
 	sendLength(sock,str);
-	send(sock,str.c_str(),str.length(),0);
+	send(sock, str.c_str(), str.length(), MSG_NOSIGNAL);
 };
 static int recvLenAndData(int sock, char * & data) {
+
 	int len=GetLength(sock);
 	
 	if(len==-1||len==0)
@@ -50,7 +57,7 @@ static int recvLenAndData(int sock, char * & data) {
 	int len1 = 0;
 	while (len1 < len)
 	{
-		len1 += recv(sock, buf, len, 0);	
+		len1 += recv(sock, buf, len, MSG_NOSIGNAL);	
 	}
 	
 	if (len1 == -1)

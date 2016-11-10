@@ -22,6 +22,7 @@ Client::Client(int fd, string ipaddr, int mapid)
 
 void* Send(void* ptr)
 {
+	
 	void** arr = (void**)ptr;
 	Client* client = (Client*)arr[0];
 	signal(SIGCHLD,
@@ -46,12 +47,21 @@ void* Recv(void* ptr)
 		char* buf=NULL;
 		if (recvLenAndData(client->GetSockFd(), buf) == -1)
 		{
+			delete buf;
 			delete client;
 			break;
 		}
-		cout << buf << endl;
-		if(buf!=NULL)
-		delete buf;
+		
+		if (buf != NULL)
+		{
+			if (strcmp(buf, "1") != 0)
+			{
+				cout << buf << endl;		
+			}
+		
+			delete buf;
+		}
+		
 	}
 }
 
@@ -66,6 +76,7 @@ Client::~Client()
 	}
 	shutdown(sockfd, SHUT_RDWR);
 	close(sockfd);
+	if(sendQueue!=NULL)
 	delete sendQueue;
 }
 

