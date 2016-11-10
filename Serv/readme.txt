@@ -1,0 +1,1 @@
+make:g++ -o [name] main.cpp -std=c++11 -lpthread
