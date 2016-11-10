@@ -1,1 +1,0 @@
-make:g++ -o [name] main.cpp -lpthread
